@@ -6,11 +6,20 @@ use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Services\FilterCacheService;
 
 class ImportXmlCommand extends Command
 {
     protected $signature = 'import:xml {filename=products.xml}';
     protected $description = 'Importing an XML file with products into the database';
+
+    protected $filterCache;
+
+    public function __construct(FilterCacheService $filterCache)
+    {
+        parent::__construct();
+        $this->filterCache = $filterCache;
+    }
 
     public function handle()
     {
@@ -144,7 +153,28 @@ class ImportXmlCommand extends Command
             }
 
             DB::commit();
-            $this->info('Import completed successfully.');
+
+
+            // Redis.
+            $this->filterCache->clearAll();
+
+            foreach ($xml->shop->offers->offer as $offer) {
+                $productId = DB::table('products')->where('name', addslashes((string)$offer->name))->value('id');
+
+                if (!$productId) {
+                    continue;
+                }
+
+                $this->filterCache->addProductToCategory((string)$offer->categoryId, $productId);
+                $this->filterCache->addProductToVendor((string)$offer->vendor, $productId);
+                $this->filterCache->addProductToAvailability(((string)$offer['available'] === 'true'), $productId);
+
+                foreach ($offer->param as $param) {
+                    $this->filterCache->addProductToParam((string)$param['name'], (string)$param, $productId);
+                }
+            }
+
+            $this->info('Import and Redis cache update completed successfully.');
         } catch (Exception $e) {
             DB::rollBack();
             $this->error('An error occurred: ' . $e->getMessage());
