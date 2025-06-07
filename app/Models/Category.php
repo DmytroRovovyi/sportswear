@@ -14,6 +14,7 @@ class Category extends Model
         'name',
         'parent_id',
     ];
+    public $incrementing = false;
 
     /**
      * Get the parent category.
