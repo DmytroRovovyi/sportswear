@@ -29,16 +29,14 @@ class ImportXmlCommand extends Command
         try {
             // Categories.
             foreach ($xml->shop->categories->category as $category) {
-                $id = (int)$category['id'];
+                $id = (string)$category['id'];
                 $name = addslashes((string)$category);
 
-                $parentIdRaw = isset($category['parentId'])
-                    ? (int)$category['parentId']
-                    : 'NULL';
+                $parentIdRaw = isset($category['parentId']) ? "'".(string)$category['parentId']."'" : "NULL";
 
                 DB::statement("
                 INSERT INTO categories (id, name, parent_id, created_at, updated_at)
-                VALUES ($id, '$name', $parentIdRaw, NOW(), NOW())
+                VALUES ('$id', '$name', $parentIdRaw, NOW(), NOW())
                 ON DUPLICATE KEY UPDATE
                     name = '$name',
                     parent_id = $parentIdRaw,
@@ -48,12 +46,12 @@ class ImportXmlCommand extends Command
 
             // Offers.
             foreach ($xml->shop->offers->offer as $offer) {
-                $offerId = (int)$offer['id'];
+                $offerId = (string)$offer['id'];
                 $available = ((string)$offer['available'] === 'true') ? 1 : 0;
                 $productName = addslashes((string)$offer->name);
                 $price = (float)$offer->price;
                 $description = addslashes((string)$offer->description);
-                $categoryId = (int)$offer->categoryId;
+                $categoryId = (string)$offer->categoryId;
                 $currencyId = addslashes((string)$offer->currencyId);
                 $stockQty = (int)$offer->stock_quantity;
                 $vendor = addslashes((string)$offer->vendor);
@@ -80,7 +78,7 @@ class ImportXmlCommand extends Command
 
                 DB::statement("
                     INSERT INTO offers (offer_id, product_id, category_id, currency_id, available, stock_quantity, vendor, vendor_code, barcode, created_at, updated_at)
-                    VALUES ($offerId, $productId, $categoryId, '$currencyId', $available, $stockQty, '$vendor', '$vendorCode', '$barcode', NOW(), NOW())
+                    VALUES ('$offerId', '$productId', '$categoryId', '$currencyId', $available, $stockQty, '$vendor', '$vendorCode', '$barcode', NOW(), NOW())
                     ON DUPLICATE KEY UPDATE
                         product_id = VALUES(product_id),
                         category_id = VALUES(category_id),
@@ -100,7 +98,7 @@ class ImportXmlCommand extends Command
 
                     DB::statement("
                         INSERT INTO product_pictures (product_id, picture, position, created_at, updated_at)
-                        VALUES ($productId, '$url', $position, NOW(), NOW())
+                        VALUES ('$productId', '$url', $position, NOW(), NOW())
                         ON DUPLICATE KEY UPDATE
                         position = VALUES(position),
                         updated_at = NOW()
@@ -127,7 +125,7 @@ class ImportXmlCommand extends Command
                     // Parameters value.
                     DB::statement("
                         INSERT INTO parameter_values (parameter_id, value, created_at, updated_at)
-                        VALUES ($parameterId, '$paramValue', NOW(), NOW())
+                        VALUES ('$parameterId', '$paramValue', NOW(), NOW())
                         ON DUPLICATE KEY UPDATE
                             updated_at = NOW()
                     ");
@@ -140,7 +138,7 @@ class ImportXmlCommand extends Command
                     // Linking the product to the parameter value.
                     DB::statement("
                         INSERT IGNORE INTO product_parameters (product_id, parameter_value_id)
-                        VALUES ($productId, $paramValueId)
+                        VALUES ('$productId', '$paramValueId')
                     ");
                 }
             }
