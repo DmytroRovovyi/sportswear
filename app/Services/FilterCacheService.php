@@ -41,6 +41,11 @@ class FilterCacheService
         Redis::sadd("filter:category:$categoryId", $productId);
     }
 
+    protected function getVendorKey(string $vendor): string
+    {
+        return 'filter:vendor:' . md5($vendor);
+    }
+
     /**
      * Add a product ID to the Redis set for a specific vendor.
      * Uses md5 hash of vendor name as the Redis key to avoid special character issues.
@@ -50,8 +55,8 @@ class FilterCacheService
      */
     public function addProductToVendor(string $vendor, int $productId)
     {
-        $vendorKey = md5($vendor);
-        Redis::sadd("filter:vendor:$vendorKey", $productId);
+        $key = $this->getVendorKey($vendor);
+        Redis::sadd($key, $productId);
     }
 
     /**
@@ -76,9 +81,23 @@ class FilterCacheService
      */
     public function addProductToParam(string $paramName, string $paramValue, int $productId)
     {
-        $paramSlug = Str::slug($paramName);
-        $paramValueSlug = Str::slug($paramValue);
-        Redis::sadd("filter:param:$paramSlug:$paramValueSlug", $productId);
+        $filterMap = [
+            'Англійське найменування' => 'name',
+            'Бренд' => 'brand',
+            'Призначення' => 'Appointment',
+            'Розмір постачальника' => 'size',
+            'Склад' => 'Composition',
+            'Стать' => 'gender',
+        ];
+
+        if (!isset($filterMap[$paramName])) {
+            return;
+        }
+
+        $paramKey = $filterMap[$paramName];
+        $paramValueHash = md5($paramValue);
+
+        Redis::sadd("filter:param:$paramKey:$paramValueHash", $productId);
     }
 
     /**
@@ -102,14 +121,81 @@ class FilterCacheService
 
         // Add product parameters.
         $params = DB::select(
-            'SELECT pp.product_id, p.slug as param_name, pv.value as param_value '
+            'SELECT pp.product_id, p.name as param_name, pv.value as param_value '
             . 'FROM product_parameters pp '
             . 'JOIN parameter_values pv ON pp.parameter_value_id = pv.id '
             . 'JOIN parameters p ON pv.parameter_id = p.id'
         );
 
         foreach ($params as $row) {
-            $this->addProductToParam($row->param_name, $row->param_value, $row->product_id);
+                $this->addProductToParam($row->param_name, $row->param_value, $row->product_id);
         }
+    }
+
+    /**
+     * Retrieve filtered product IDs from Redis based on the given filters.
+     *
+     * @param array $filters
+     * @return array
+     */
+    public function getFilteredProductIds(array $filters): array
+    {
+        $redisKeysByParam = [];
+
+        foreach ($filters as $key => $values) {
+            $values = (array) $values;
+
+            $keysForThisFilter = [];
+
+            foreach ($values as $value) {
+                switch ($key) {
+                    case 'category':
+                        $keysForThisFilter[] = "filter:category:$value";
+                        break;
+                    case 'vendor':
+                        $keysForThisFilter[] = "filter:vendor:" . md5($value);
+                        break;
+                    case 'availability':
+                        $availabilityKey = $value ? 'available' : 'not_available';
+                        $keysForThisFilter[] = "filter:availability:$availabilityKey";
+                        break;
+                    default:
+                        $paramSlug = Str::slug($key);
+                        $valueSlug = Str::slug($value);
+                        $keysForThisFilter[] = "filter:param:$paramSlug:$valueSlug";
+                        break;
+                }
+            }
+
+            if (count($keysForThisFilter) === 1) {
+                $redisKeysByParam[] = $keysForThisFilter[0];
+            } elseif (count($keysForThisFilter) > 1) {
+                $tempKey = 'temp:union:' . md5(implode(',', $keysForThisFilter));
+                Redis::del($tempKey);
+                Redis::sunionstore($tempKey, ...$keysForThisFilter);
+                $redisKeysByParam[] = $tempKey;
+            }
+        }
+
+        if (empty($redisKeysByParam)) {
+            $cachedIds = Redis::smembers('filter:all_products') ?: [];
+        } else {
+            $cachedIds = Redis::sinter(...$redisKeysByParam);
+        }
+
+        foreach ($redisKeysByParam as $key) {
+            if (str_starts_with($key, 'temp:union:')) {
+                Redis::del($key);
+            }
+        }
+
+        if (empty($cachedIds)) {
+            return [];
+        }
+
+        return DB::table('offers')
+            ->whereIn('product_id', $cachedIds)
+            ->pluck('product_id')
+            ->toArray();
     }
 }
