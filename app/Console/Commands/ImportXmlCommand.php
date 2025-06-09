@@ -161,6 +161,7 @@ class ImportXmlCommand extends Command
                 $this->filterCache->addProductToCategory((string)$offer->categoryId, $productId);
                 $this->filterCache->addProductToVendor((string)$offer->vendor, $productId);
                 $this->filterCache->addProductToAvailability(((string)$offer['available'] === 'true'), $productId);
+                $this->filterCache->addProductToAllProducts($productId);
 
                 foreach ($offer->param as $param) {
                     $this->filterCache->addProductToParam((string)$param['name'], (string)$param, $productId);
