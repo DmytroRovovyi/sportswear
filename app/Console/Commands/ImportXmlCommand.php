@@ -128,16 +128,16 @@ class ImportXmlCommand extends Command
                 foreach ($offer->param as $param) {
                     $ukrParamName = (string)$param['name'];
                     $paramValue = (string)$param;
-
                     $paramName = $this->filterMap[$ukrParamName] ?? $ukrParamName;
-
                     $paramSlug = Str::slug($paramName);
 
                     DB::update("
-                            INSERT INTO parameters (name, slug, created_at, updated_at)
-                            VALUES (?, ?, NOW(), NOW())
-                            ON DUPLICATE KEY UPDATE updated_at = NOW()
-                    ", [$paramName, $paramSlug]);
+                        INSERT INTO parameters (name, slug, created_at, updated_at)
+                        VALUES (?, ?, NOW(), NOW())
+                        ON DUPLICATE KEY UPDATE
+                            name = VALUES(name),
+                            updated_at = NOW()
+                    ", [$ukrParamName, $paramSlug]);
 
                     $parameterId = DB::table('parameters')->where('slug', $paramSlug)->value('id');
 
@@ -175,10 +175,7 @@ class ImportXmlCommand extends Command
                 $this->filterCache->addProductToVendor((string)$offer->vendor, $productId);
                 $this->filterCache->addProductToAvailability(((string)$offer['available'] === 'true'), $productId);
                 $this->filterCache->addProductToAllProducts($productId);
-
-                foreach ($offer->param as $param) {
-                    $this->filterCache->addProductToParam((string)$param['name'], (string)$param, $productId);
-                }
+                $this->filterCache->addProductToParam($productId);
             }
 
             $this->info('Import and Redis cache update completed successfully.');

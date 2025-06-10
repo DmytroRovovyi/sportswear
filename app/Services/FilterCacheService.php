@@ -75,29 +75,45 @@ class FilterCacheService
      * Add a product ID to the Redis set for a specific parameter and its value.
      * Parameter name and value are slugified to create the Redis key.
      *
-     * @param string $paramName
-     * @param string $paramValue
      * @param int $productId
+     * @return void
      */
-    public function addProductToParam(string $paramName, string $paramValue, int $productId)
+    public function addProductToParam(int $productId): void
     {
-        $filterMap = [
-            'Англійське найменування' => 'name',
-            'Бренд' => 'brand',
-            'Призначення' => 'Appointment',
-            'Розмір постачальника' => 'size',
-            'Склад' => 'Composition',
-            'Стать' => 'gender',
-        ];
+        $parametersRaw = DB::select("
+            SELECT id, slug
+            FROM parameters
+            WHERE slug IN ('name', 'brand', 'color', 'appointment', 'size', 'composition', 'gender')
+        ");
 
-        if (!isset($filterMap[$paramName])) {
+        if (empty($parametersRaw)) {
             return;
         }
 
-        $paramKey = $filterMap[$paramName];
-        $paramValueHash = md5($paramValue);
+        $parameters = [];
+        foreach ($parametersRaw as $param) {
+            $parameters[$param->id] = $param->slug;
+        }
 
-        Redis::sadd("filter:param:$paramKey:$paramValueHash", $productId);
+        $paramValues = DB::select("
+            SELECT pv.parameter_id, pv.value
+            FROM parameter_values pv
+            INNER JOIN product_parameters pp ON pp.parameter_value_id = pv.id
+            WHERE pp.product_id = ?
+        ", [$productId]);
+
+        foreach ($paramValues as $param) {
+            if (!isset($parameters[$param->parameter_id])) {
+                continue;
+            }
+
+            $slug = $parameters[$param->parameter_id];
+            $value = $param->value;
+            $hashedValue = md5($value);
+
+            $key = "filter:param:$slug:$hashedValue";
+            Redis::sadd($key, $productId);
+        }
     }
 
     /**
@@ -117,18 +133,7 @@ class FilterCacheService
             $this->addProductToVendor((string)$offer->vendor, $offer->product_id);
             $this->addProductToAvailability((bool)$offer->available, $offer->product_id);
             $this->addProductToAllProducts($offer->product_id);
-        }
-
-        // Add product parameters.
-        $params = DB::select(
-            'SELECT pp.product_id, p.name as param_name, pv.value as param_value '
-            . 'FROM product_parameters pp '
-            . 'JOIN parameter_values pv ON pp.parameter_value_id = pv.id '
-            . 'JOIN parameters p ON pv.parameter_id = p.id'
-        );
-
-        foreach ($params as $row) {
-                $this->addProductToParam($row->param_name, $row->param_value, $row->product_id);
+            $this->addProductToParam($offer->product_id);
         }
     }
 
@@ -152,17 +157,19 @@ class FilterCacheService
                     case 'category':
                         $keysForThisFilter[] = "filter:category:$value";
                         break;
+
                     case 'vendor':
                         $keysForThisFilter[] = "filter:vendor:" . md5($value);
                         break;
+
                     case 'availability':
                         $availabilityKey = $value ? 'available' : 'not_available';
                         $keysForThisFilter[] = "filter:availability:$availabilityKey";
                         break;
+
                     default:
                         $paramSlug = Str::slug($key);
-                        $valueSlug = Str::slug($value);
-                        $keysForThisFilter[] = "filter:param:$paramSlug:$valueSlug";
+                        $keysForThisFilter[] = "filter:param:$paramSlug:" . md5($value);
                         break;
                 }
             }
