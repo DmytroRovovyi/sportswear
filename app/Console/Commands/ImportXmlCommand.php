@@ -14,6 +14,16 @@ class ImportXmlCommand extends Command
 
     protected $filterCache;
 
+    protected $filterMap = [
+        'Англійське найменування' => 'name',
+        'Бренд' => 'brand',
+        'Колір' => 'color',
+        'Призначення' => 'appointment',
+        'Розмір постачальника' => 'size',
+        'Склад' => 'composition',
+        'Стать' => 'gender',
+    ];
+
     public function __construct(FilterCacheService $filterCache)
     {
         parent::__construct();
@@ -116,15 +126,18 @@ class ImportXmlCommand extends Command
 
                 // Add product parameters and link them to products.
                 foreach ($offer->param as $param) {
-                    $paramName = (string)$param['name'];
-                    $paramSlug = Str::slug($paramName);
+                    $ukrParamName = (string)$param['name'];
                     $paramValue = (string)$param;
+                    $paramName = $this->filterMap[$ukrParamName] ?? $ukrParamName;
+                    $paramSlug = Str::slug($paramName);
 
                     DB::update("
                         INSERT INTO parameters (name, slug, created_at, updated_at)
                         VALUES (?, ?, NOW(), NOW())
-                        ON DUPLICATE KEY UPDATE updated_at = NOW()
-                    ", [$paramName, $paramSlug]);
+                        ON DUPLICATE KEY UPDATE
+                            name = VALUES(name),
+                            updated_at = NOW()
+                    ", [$ukrParamName, $paramSlug]);
 
                     $parameterId = DB::table('parameters')->where('slug', $paramSlug)->value('id');
 
@@ -161,10 +174,8 @@ class ImportXmlCommand extends Command
                 $this->filterCache->addProductToCategory((string)$offer->categoryId, $productId);
                 $this->filterCache->addProductToVendor((string)$offer->vendor, $productId);
                 $this->filterCache->addProductToAvailability(((string)$offer['available'] === 'true'), $productId);
-
-                foreach ($offer->param as $param) {
-                    $this->filterCache->addProductToParam((string)$param['name'], (string)$param, $productId);
-                }
+                $this->filterCache->addProductToAllProducts($productId);
+                $this->filterCache->addProductToParam($productId);
             }
 
             $this->info('Import and Redis cache update completed successfully.');
