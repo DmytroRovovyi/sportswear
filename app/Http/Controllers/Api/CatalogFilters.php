@@ -12,6 +12,9 @@ class CatalogFilters extends Controller
 {
     protected FilterCacheService $filterCache;
 
+    /**
+     * Constructor
+     */
     public function __construct(FilterCacheService $filterCache)
     {
         $this->filterCache = $filterCache;

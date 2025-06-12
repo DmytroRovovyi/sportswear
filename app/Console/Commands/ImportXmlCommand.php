@@ -9,11 +9,27 @@ use App\Services\FilterCacheService;
 
 class ImportXmlCommand extends Command
 {
+    /**
+     * The name and signature of the console command.
+     *
+     * @var string
+     */
     protected $signature = 'import:xml {filename=products.xml}';
+
+    /**
+     * The console command description.
+     *
+     * @var string
+     */
     protected $description = 'Importing an XML file with products into the database';
 
-    protected $filterCache;
+    protected FilterCacheService $filterCache;
 
+    /**
+     * Mapping of parameter names from Ukrainian to internal filter keys.
+     *
+     * @var array<string, string>
+     */
     protected $filterMap = [
         'Англійське найменування' => 'name',
         'Бренд' => 'brand',
@@ -24,12 +40,20 @@ class ImportXmlCommand extends Command
         'Стать' => 'gender',
     ];
 
+    /**
+     * Constructor
+     */
     public function __construct(FilterCacheService $filterCache)
     {
         parent::__construct();
         $this->filterCache = $filterCache;
     }
 
+    /**
+     * Handles importing product data from an XML file and updates the Redis cache for filters.
+     *
+     * @return void
+     */
     public function handle()
     {
         $filename = $this->argument('filename');
