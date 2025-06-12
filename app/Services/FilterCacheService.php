@@ -219,7 +219,7 @@ class FilterCacheService
         }
 
         $tempKey = 'temp:intersect:' . md5(implode('|', $keys));
-        Redis::sinterstore($tempKey, ...$keys); // <-- Фікс тут
+        Redis::sinterstore($tempKey, ...$keys);
         $count = Redis::scard($tempKey);
         Redis::del($tempKey);
 
