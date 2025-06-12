@@ -83,7 +83,7 @@ class FilterCacheService
         $parametersRaw = DB::select("
             SELECT id, slug
             FROM parameters
-            WHERE slug IN ('name', 'brand', 'color', 'appointment', 'size', 'composition', 'gender')
+            WHERE slug IN ('brand', 'color', 'appointment', 'gender')
         ");
 
         if (empty($parametersRaw)) {
@@ -204,5 +204,25 @@ class FilterCacheService
             ->whereIn('product_id', $cachedIds)
             ->pluck('product_id')
             ->toArray();
+    }
+
+    /**
+     *
+     *
+     * @param array $keys
+     * @return int
+     */
+    public function getCountFromKeys(array $keys): int
+    {
+        if (empty($keys)) {
+            return 0;
+        }
+
+        $tempKey = 'temp:intersect:' . md5(implode('|', $keys));
+        Redis::sinterstore($tempKey, ...$keys);
+        $count = Redis::scard($tempKey);
+        Redis::del($tempKey);
+
+        return $count;
     }
 }
