@@ -41,6 +41,12 @@ class FilterCacheService
         Redis::sadd("filter:category:$categoryId", $productId);
     }
 
+    /**
+     * Generate a Redis key for a specific vendor using its hashed name.
+     *
+     * @param string $vendor
+     * @return string
+     */
     protected function getVendorKey(string $vendor): string
     {
         return 'filter:vendor:' . md5($vendor);
@@ -207,7 +213,7 @@ class FilterCacheService
     }
 
     /**
-     *
+     * Count the number of product IDs that exist in the intersection of given Redis sets.
      *
      * @param array $keys
      * @return int
@@ -217,7 +223,6 @@ class FilterCacheService
         if (empty($keys)) {
             return 0;
         }
-
         $tempKey = 'temp:intersect:' . md5(implode('|', $keys));
         Redis::sinterstore($tempKey, ...$keys);
         $count = Redis::scard($tempKey);
