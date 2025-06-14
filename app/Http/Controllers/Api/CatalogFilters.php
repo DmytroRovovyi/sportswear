@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Traits\SortsFilterItems;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Services\FilterCacheService;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 
 class CatalogFilters extends Controller
 {
+    use SortsFilterItems;
     protected FilterCacheService $filterCache;
 
     /**
@@ -19,33 +21,6 @@ class CatalogFilters extends Controller
     {
         $this->filterCache = $filterCache;
     }
-
-    /**
-     * Sorts filter items by active status, count, and value name.
-     *
-     * @param array $items
-     * @return array
-     */
-    private function sortFilterItems(array $items): array
-    {
-        usort($items, function ($a, $b) {
-
-            // Active sort value for arrays.
-            if ($a['active'] !== $b['active']) {
-                return $a['active'] ? -1 : 1;
-            }
-
-            // Count sort value for arrays.
-            if (($a['count'] > 0) !== ($b['count'] > 0)) {
-                return $a['count'] > 0 ? -1 : 1;
-            }
-
-            return strcmp((string) $a['value'], (string) $b['value']);
-        });
-
-        return $items;
-    }
-
 
     /**
      * Get a list of all available filters with counts depending on current active filters.
