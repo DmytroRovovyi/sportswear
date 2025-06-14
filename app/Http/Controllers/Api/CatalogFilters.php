@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Traits\SortsFilterItems;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Services\FilterCacheService;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 
 class CatalogFilters extends Controller
 {
+    use SortsFilterItems;
     protected FilterCacheService $filterCache;
 
     /**
@@ -19,33 +21,6 @@ class CatalogFilters extends Controller
     {
         $this->filterCache = $filterCache;
     }
-
-    /**
-     * Sorts filter items by active status, count, and value name.
-     *
-     * @param array $items
-     * @return array
-     */
-    private function sortFilterItems(array $items): array
-    {
-        usort($items, function ($a, $b) {
-
-            // Active sort value for arrays.
-            if ($a['active'] !== $b['active']) {
-                return $a['active'] ? -1 : 1;
-            }
-
-            // Count sort value for arrays.
-            if (($a['count'] > 0) !== ($b['count'] > 0)) {
-                return $a['count'] > 0 ? -1 : 1;
-            }
-
-            return strcmp((string) $a['value'], (string) $b['value']);
-        });
-
-        return $items;
-    }
-
 
     /**
      * Get a list of all available filters with counts depending on current active filters.
@@ -63,27 +38,19 @@ class CatalogFilters extends Controller
                     'message' => 'Invalid filters format.',
                 ], 400);
             }
+
             $result = [];
 
-            // Load all parameters that should be available as filters.
+            $activeKeys = $this->filterCache->getActiveKeysFromSelectedFilters($filters);
             $parameters = DB::select('
                 SELECT id, slug, name
                 FROM parameters
                 WHERE slug IN (?, ?, ?, ?)
             ', ['brand', 'color', 'appointment', 'gender']);
 
-            // Generate current active Redis keys for filtering.
-            $activeKeys = [];
-            foreach ($filters as $slug => $values) {
-                foreach ((array) $values as $value) {
-                    $activeKeys[] = "filter:param:$slug:" . md5($value);
-                }
-            }
-
             foreach ($parameters as $parameter) {
                 $paramSlug = $parameter->slug;
 
-                // Get all unique values for this parameter.
                 $values = DB::select('
                     SELECT DISTINCT value
                     FROM parameter_values
@@ -103,14 +70,16 @@ class CatalogFilters extends Controller
                     }
 
                     $usedValues[] = $normalizedValue;
-
                     $isActive = isset($filters[$paramSlug]) && in_array($value, (array) $filters[$paramSlug]);
 
-                    // Generate test keys by merging active keys with current value
-                    $testKeys = $activeKeys;
+                    // Виключаємо поточний фільтр зі списку активних
+                    $keysExcludingCurrent = array_filter($activeKeys, function ($key) use ($paramSlug) {
+                        return !str_contains($key, "filter:param:$paramSlug:");
+                    });
+
+                    $testKeys = $keysExcludingCurrent;
                     $testKeys[] = "filter:param:$paramSlug:" . md5($value);
 
-                    // Get the intersection count from Redis
                     $count = $this->filterCache->getCountFromKeys($testKeys);
 
                     $filterItems[] = [
@@ -128,7 +97,6 @@ class CatalogFilters extends Controller
                     'values' => $filterItems,
                 ];
             }
-
             $categories = DB::select('
                 SELECT DISTINCT category_id as id
                 FROM offers
@@ -139,9 +107,14 @@ class CatalogFilters extends Controller
             $categoryItems = [];
             foreach ($categories as $category) {
                 $value = $category->id;
-                $isActive = isset($filters['category']) && in_array($value, (array) $filters['category']);
-                $testKeys = $activeKeys;
-                $testKeys[] = "filter:category:$value";
+                $isActive = isset($filters['category_id']) && in_array($value, (array) $filters['category_id']);
+
+                $keysExcludingCurrent = array_filter($activeKeys, function ($key) {
+                    return !str_starts_with($key, 'filter:category_id:');
+                });
+
+                $testKeys = $keysExcludingCurrent;
+                $testKeys[] = "filter:category_id:$value";
 
                 $count = $this->filterCache->getCountFromKeys($testKeys);
 
@@ -155,10 +128,9 @@ class CatalogFilters extends Controller
             $categoryItems = $this->sortFilterItems($categoryItems);
 
             $result[] = [
-                'slug' => 'category',
+                'slug' => 'category_id',
                 'values' => $categoryItems,
             ];
-
             $vendors = DB::select('
                 SELECT DISTINCT vendor
                 FROM offers
@@ -170,7 +142,12 @@ class CatalogFilters extends Controller
             foreach ($vendors as $vendorObj) {
                 $value = $vendorObj->vendor;
                 $isActive = isset($filters['vendor']) && in_array($value, (array) $filters['vendor']);
-                $testKeys = $activeKeys;
+
+                $keysExcludingCurrent = array_filter($activeKeys, function ($key) {
+                    return !str_starts_with($key, 'filter:vendor:');
+                });
+
+                $testKeys = $keysExcludingCurrent;
                 $testKeys[] = "filter:vendor:" . md5($value);
 
                 $count = $this->filterCache->getCountFromKeys($testKeys);
@@ -189,16 +166,9 @@ class CatalogFilters extends Controller
                 'values' => $vendorItems,
             ];
 
-            if (empty($result)) {
-                return response()->json([
-                    'message' => 'No filters available.',
-                    'data' => [],
-                ]);
-            }
-
             return response()->json($result);
-        } catch (\Throwable $e) {
 
+        } catch (\Throwable $e) {
             Log::error('Error in CatalogFilters@filters', ['message' => $e->getMessage()]);
 
             return response()->json([

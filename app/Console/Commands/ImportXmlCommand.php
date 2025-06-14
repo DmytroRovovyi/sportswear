@@ -194,7 +194,6 @@ class ImportXmlCommand extends Command
                 if (!$productId) {
                     continue;
                 }
-
                 $this->filterCache->addProductToCategory((string)$offer->categoryId, $productId);
                 $this->filterCache->addProductToVendor((string)$offer->vendor, $productId);
                 $this->filterCache->addProductToAvailability(((string)$offer['available'] === 'true'), $productId);
