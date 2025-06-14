@@ -38,7 +38,7 @@ class FilterCacheService
      */
     public function addProductToCategory(string $categoryId, int $productId)
     {
-        Redis::sadd("filter:category:$categoryId", $productId);
+        Redis::sadd("filter:category_id:$categoryId", $productId);
     }
 
     /**
@@ -160,8 +160,8 @@ class FilterCacheService
 
             foreach ($values as $value) {
                 switch ($key) {
-                    case 'category':
-                        $keysForThisFilter[] = "filter:category:$value";
+                    case 'category_id':
+                        $keysForThisFilter[] = "filter:category_id:$value";
                         break;
 
                     case 'vendor':
@@ -229,5 +229,28 @@ class FilterCacheService
         Redis::del($tempKey);
 
         return $count;
+    }
+
+    /**
+     * Generates an array of Redis keys representing the currently active filters.
+     *
+     * @param array $filters
+     * @return array
+     */
+    public function getActiveKeysFromSelectedFilters(array $filters): array
+    {
+        $keys = [];
+
+        foreach ($filters as $slug => $values) {
+            foreach ((array) $values as $value) {
+                if (in_array($slug, ['vendor', 'category_id'])) {
+                    $keys[] = "filter:$slug:" . ($slug === 'vendor' ? md5($value) : $value);
+                } else {
+                    $keys[] = "filter:param:$slug:" . md5($value);
+                }
+            }
+        }
+
+        return $keys;
     }
 }

@@ -28,7 +28,8 @@ class CatalogPageController extends Controller
      */
     public function index(Request $request)
     {
-        $allowedFilters = ['color', 'appointment', 'gender'];
+        $sortBy = $request->input('sort_by', null);
+        $allowedFilters = ['brand', 'color', 'appointment', 'gender', 'category_id', 'vendor'];
         $filters = [];
 
         foreach ($allowedFilters as $filterKey) {
@@ -47,12 +48,41 @@ class CatalogPageController extends Controller
 
         $pagedProductIds = array_slice($productIds, $offset, $perPage);
 
-        $products = DB::table('offers')
-            ->join('products', 'offers.product_id', '=', 'products.id')
-            ->whereIn('offers.product_id', $pagedProductIds)
-            ->select('offers.offer_id', 'offers.category_id', 'offers.vendor',
-                'products.name', 'products.price', 'products.description')
-            ->get();
+        $placeholders = implode(',', array_fill(0, count($pagedProductIds), '?'));
+
+        switch ($sortBy) {
+            case 'price_asc':
+                $orderBy = 'ORDER BY products.price ASC';
+                break;
+            case 'price_desc':
+                $orderBy = 'ORDER BY products.price DESC';
+                break;
+            case 'name_asc':
+                $orderBy = 'ORDER BY products.name ASC';
+                break;
+            case 'name_desc':
+                $orderBy = 'ORDER BY products.name DESC';
+                break;
+            default:
+                $orderBy = '';
+                break;
+        }
+
+        $sql = "
+            SELECT
+                offers.offer_id,
+                offers.category_id,
+                offers.vendor,
+                products.name,
+                products.price,
+                products.description
+            FROM offers
+            JOIN products ON offers.product_id = products.id
+            WHERE offers.product_id IN ($placeholders)
+            $orderBy
+        ";
+
+        $products = DB::select($sql, $pagedProductIds);
 
         $filtersData = $this->getFiltersData($filters);
         $total = count($productIds);
@@ -63,6 +93,7 @@ class CatalogPageController extends Controller
             'currentPage' => $page,
             'lastPage' => (int) ceil($total / $perPage),
             'total' => $total,
+            'sortBy' => $sortBy,
         ]);
     }
 
@@ -76,49 +107,39 @@ class CatalogPageController extends Controller
     {
         $result = [];
 
-        $paramSlugs = ['brand', 'color', 'gender', 'appointment'];
+        $offerFields = ['category_id', 'vendor'];
+        $parameterSlugs = ['brand', 'color', 'gender', 'appointment'];
 
-        $parameters = DB::table('parameters')
-            ->whereIn('slug', $paramSlugs)
-            ->pluck('id', 'slug');
+        $activeKeys = $this->filterCache->getActiveKeysFromSelectedFilters($selectedFilters);
 
-        $activeKeys = [];
+        foreach ($offerFields as $slug) {
+            $sql = "
+                SELECT DISTINCT `$slug`
+                FROM offers
+                WHERE `$slug` IS NOT NULL
+                  AND `$slug` != ''
+                  AND TRIM(`$slug`) != ''
+            ";
 
-        foreach ($selectedFilters as $slug => $values) {
-            foreach ((array) $values as $val) {
-                if ($slug === 'category') {
-                    $activeKeys[] = "filter:category:$val";
-                } elseif ($slug === 'vendor') {
-                    $activeKeys[] = "filter:vendor:" . md5($val);
-                } else {
-                    $activeKeys[] = "filter:param:$slug:" . md5($val);
-                }
-            }
-        }
+            $values = DB::select($sql);
+            $values = array_map(fn($item) => $item->$slug, $values);
 
-        foreach ($parameters as $slug => $paramId) {
-            $possibleValues = DB::table('parameter_values')
-                ->where('parameter_id', $paramId)
-                ->where('value', '!=', '')
-                ->pluck('value')
-                ->unique();
+            $filterItems = [];
 
-            $values = [];
+            foreach ($values as $value) {
+                $isActive = isset($selectedFilters[$slug]) && in_array($value, (array) $selectedFilters[$slug]);
 
-            foreach ($possibleValues as $value) {
                 $testKeys = $activeKeys;
 
-                $isActive = isset($selectedFilters[$slug]) &&
-                    in_array($value, (array) $selectedFilters[$slug]);
-
                 if (!$isActive) {
-                    $testKeys[] = "filter:param:$slug:" . md5($value);
+                    $key = "filter:$slug:" . ($slug === 'vendor' ? md5($value) : $value);
+                    $testKeys[] = $key;
                 }
 
                 $count = $this->filterCache->getCountFromKeys($testKeys);
 
                 if ($count > 0 || $isActive) {
-                    $values[] = [
+                    $filterItems[] = [
                         'value' => $value,
                         'count' => $count,
                         'active' => $isActive,
@@ -126,72 +147,51 @@ class CatalogPageController extends Controller
                 }
             }
 
-            $result[$slug] = $this->sortFilterItems($values);
+            $result[$slug] = $this->sortFilterItems($filterItems);
         }
 
-        $categories = DB::table('offers')
-            ->select('category_id')
-            ->whereNotNull('category_id')
-            ->where('category_id', '!=', '')
-            ->distinct()
-            ->pluck('category_id');
-
-        $categoryValues = [];
-
-        foreach ($categories as $value) {
-            $testKeys = $activeKeys;
-
-            $isActive = isset($selectedFilters['category']) &&
-                in_array($value, (array) $selectedFilters['category']);
-
-            if (!$isActive) {
-                $testKeys[] = "filter:category:$value";
+        foreach ($parameterSlugs as $slug) {
+            $paramId = DB::table('parameters')->where('slug', $slug)->value('id');
+            if (!$paramId) {
+                $result[$slug] = [];
+                continue;
             }
 
-            $count = $this->filterCache->getCountFromKeys($testKeys);
+            $sql = "
+                SELECT DISTINCT value
+                FROM parameter_values
+                WHERE parameter_id = ?
+                  AND value != ''
+            ";
 
-            if ($count > 0 || $isActive) {
-                $categoryValues[] = [
-                    'value' => $value,
-                    'count' => $count,
-                    'active' => $isActive,
-                ];
+            $rows = DB::select($sql, [$paramId]);
+            $values = array_map(fn($row) => $row->value, $rows);
+
+            $filterItems = [];
+
+            foreach ($values as $value) {
+                $isActive = isset($selectedFilters[$slug]) && in_array($value, (array) $selectedFilters[$slug]);
+
+                $testKeys = $activeKeys;
+
+                if (!$isActive) {
+                    $key = "filter:param:$slug:" . md5($value);
+                    $testKeys[] = $key;
+                }
+
+                $count = $this->filterCache->getCountFromKeys($testKeys);
+
+                if ($count > 0 || $isActive) {
+                    $filterItems[] = [
+                        'value' => $value,
+                        'count' => $count,
+                        'active' => $isActive,
+                    ];
+                }
             }
+
+            $result[$slug] = $this->sortFilterItems($filterItems);
         }
-
-        $result['category'] = $this->sortFilterItems($categoryValues);
-
-        $vendors = DB::table('offers')
-            ->select('vendor')
-            ->whereNotNull('vendor')
-            ->where('vendor', '!=', '')
-            ->distinct()
-            ->pluck('vendor');
-
-        $vendorValues = [];
-
-        foreach ($vendors as $value) {
-            $testKeys = $activeKeys;
-
-            $isActive = isset($selectedFilters['vendor']) &&
-                in_array($value, (array) $selectedFilters['vendor']);
-
-            if (!$isActive) {
-                $testKeys[] = "filter:vendor:" . md5($value);
-            }
-
-            $count = $this->filterCache->getCountFromKeys($testKeys);
-
-            if ($count > 0 || $isActive) {
-                $vendorValues[] = [
-                    'value' => $value,
-                    'count' => $count,
-                    'active' => $isActive,
-                ];
-            }
-        }
-
-        $result['vendor'] = $this->sortFilterItems($vendorValues);
 
         return $result;
     }

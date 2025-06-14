@@ -12,7 +12,7 @@
     <div class="flex">
         <div class="w-1/6 md:w-1/4">
             <form method="GET" action="{{ route('catalog.index') }}" class="bg-white p-4 rounded shadow">
-                <h2 class="text-xl font-semibold mb-4">Filters</h2>
+                <h2>Filters</h2>
 
                 @foreach ($filters as $slug => $options)
                     <div x-data="{ open: false }" class="mb-4 border-b pb-2">
@@ -38,18 +38,34 @@
                     </div>
                 @endforeach
 
-                <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mt-4">
+                <div class="mb-4">
+                    <label for="sort_by" class="block font-medium mb-1">Sort by:</label>
+                    <select name="sort_by" id="sort_by" class="border rounded px-2 py-1 w-full">
+                        <option value="" {{ $sortBy == '' ? 'selected' : '' }}>Default</option>
+                        <option value="price_asc" {{ $sortBy == 'price_asc' ? 'selected' : '' }}>Price: Low to High</option>
+                        <option value="price_desc" {{ $sortBy == 'price_desc' ? 'selected' : '' }}>Price: High to Low</option>
+                        <option value="name_asc" {{ $sortBy == 'name_asc' ? 'selected' : '' }}>Name: A to Z</option>
+                        <option value="name_desc" {{ $sortBy == 'name_desc' ? 'selected' : '' }}>Name: Z to A</option>
+                    </select>
+                </div>
+
+                <button type="submit">
                     Select filters
+                </button>
+                <button type="button"
+                        onclick="window.location='{{ route('catalog.index') }}'"
+                        class="bg-gray-400 text-white px-4 py-2 rounded hover:bg-gray-500 mt-2">
+                    Reset filters
                 </button>
             </form>
         </div>
 
         <div class="w-5/6 md:w-3/4">
-            <h2 class="text-xl font-semibold mb-4">Знайдено: {{ $total }} товарів</h2>
+            <h2>Знайдено: {{ $total }} товарів</h2>
 
             @forelse ($products as $product)
-                <div class="bg-white p-4 rounded shadow mb-4">
-                    <h3 class="text-lg font-bold">{{ $product->name }}</h3>
+                <div>
+                    <h3>{{ $product->name }}</h3>
                     <p><strong>Виробник:</strong> {{ $product->vendor }}</p>
                     <p><strong>Категорія:</strong> {{ $product->category_id }}</p>
                     <p><strong>Ціна:</strong> {{ $product->price }}</p>
